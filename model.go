@@ -109,11 +109,6 @@ func (m *model) View() string {
 	grid := m.viewGrid()
 	keyboard := m.viewKeyboard()
 
-	// Truncate the status if it is too long.
-	if len(status) > m.windowWidth && m.windowWidth > 3 {
-		status = status[:m.windowWidth-3] + "..."
-	}
-
 	// Drop the keyboard if it doesn't fit.
 	height := lipgloss.Height(status) + lipgloss.Height(grid) + lipgloss.Height(keyboard)
 	width := lipgloss.Width(keyboard)
@@ -310,9 +305,15 @@ func (m *model) resetStatus() {
 	m.status = fmt.Sprintf("Score: %d", m.score)
 }
 
-// viewStatus renders the status line.
+// viewStatus renders the status line, truncated to fit the window. The plain
+// text is truncated before it is styled, so that the escape codes are neither
+// counted as text nor cut.
 func (m *model) viewStatus() string {
-	return lipgloss.NewStyle().Foreground(_colorPrimary).Render(m.status)
+	status := m.status
+	if len(status) > m.windowWidth && m.windowWidth > 3 {
+		status = status[:m.windowWidth-3] + "..."
+	}
+	return lipgloss.NewStyle().Foreground(_colorPrimary).Render(status)
 }
 
 // viewGrid renders the grid.
