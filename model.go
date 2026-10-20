@@ -19,6 +19,8 @@ const (
 	_numGuesses = 6
 	// _numChars is the word size in characters.
 	_numChars = 5
+	// _revealDelay is the time between revealing the letters of a guess.
+	_revealDelay = 300 * time.Millisecond
 )
 
 type model struct {
@@ -42,6 +44,13 @@ type model struct {
 	gridRow   int
 	gridCol   int
 	keyStates map[byte]keyState
+
+	// revealCol is the number of letters of the last guess whose colors have
+	// been revealed. It is _numChars when no reveal is in progress.
+	revealCol int
+	// revealID identifies the current reveal, so that ticks left over from a
+	// restarted game are ignored.
+	revealID int
 }
 
 var _ tea.Model = (*model)(nil)
@@ -52,6 +61,7 @@ func newModel(ctx context.Context, store *store.Queries, dictionary Dictionary) 
 		store:      store,
 		dictionary: dictionary,
 		keyStates:  make(map[byte]keyState, 26),
+		revealCol:  _numChars,
 	}
 }
 
@@ -65,6 +75,8 @@ func (m *model) Init() tea.Cmd {
 // updates the Model and sends a command.
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case msgReveal:
+		return m, m.doReveal(msg)
 	case msgResetStatus:
 		// If there is more than one pending status message, that means
 		// something else is currently displaying a status message, so we don't
@@ -125,7 +137,7 @@ func (m *model) View() string {
 
 // doAcceptGuess accepts the current word.
 func (m *model) doAcceptGuess() tea.Cmd {
-	if m.gameOver {
+	if m.gameOver || m.isRevealing() {
 		return nil
 	}
 
@@ -145,6 +157,48 @@ func (m *model) doAcceptGuess() tea.Cmd {
 		slog.Error("error saving guess", slog.Any("error", err))
 	}
 
+	// Move the cursor to the next row.
+	m.gridRow++
+	m.gridCol = 0
+
+	// Reveal the colors of the guess one letter at a time. The keyboard and
+	// the result are updated once the whole guess has been revealed.
+	m.revealCol = 0
+	m.revealID++
+	return m.tickReveal()
+}
+
+// isRevealing reports whether the colors of the last guess are still being
+// revealed.
+func (m *model) isRevealing() bool {
+	return m.revealCol < _numChars
+}
+
+// tickReveal returns a tea.Cmd that reveals the next letter after a delay.
+func (m *model) tickReveal() tea.Cmd {
+	id := m.revealID
+	return tea.Tick(_revealDelay, func(time.Time) tea.Msg {
+		return msgReveal{id: id}
+	})
+}
+
+// doReveal reveals the color of the next letter of the last guess.
+func (m *model) doReveal(msg msgReveal) tea.Cmd {
+	if msg.id != m.revealID || !m.isRevealing() {
+		return nil
+	}
+	m.revealCol++
+	if m.isRevealing() {
+		return m.tickReveal()
+	}
+	return m.doFinishGuess()
+}
+
+// doFinishGuess updates the keyboard with the last guess, once it has been
+// revealed, and checks if the game is over.
+func (m *model) doFinishGuess() tea.Cmd {
+	guess := m.grid[m.gridRow-1]
+
 	// Update the state of the used letters.
 	success := true
 	for idx, key := range guess {
@@ -159,10 +213,6 @@ func (m *model) doAcceptGuess() tea.Cmd {
 		}
 		m.keyStates[key] = max(keyState, m.keyStates[key])
 	}
-
-	// Move the cursor to the next row.
-	m.gridRow++
-	m.gridCol = 0
 
 	// Check if the game is over.
 	if success {
@@ -203,7 +253,7 @@ func (m *model) saveGuess(guess string) error {
 // doAcceptChar adds one input character to the current word.
 func (m *model) doAcceptChar(ch rune) tea.Cmd {
 	// Only accept a character if the current word is incomplete.
-	if m.gameOver || !(m.gridRow < _numGuesses && m.gridCol < _numChars) {
+	if m.gameOver || m.isRevealing() || !(m.gridRow < _numGuesses && m.gridCol < _numChars) {
 		return nil
 	}
 
@@ -217,7 +267,7 @@ func (m *model) doAcceptChar(ch rune) tea.Cmd {
 
 // doDeleteChar deletes the last character in the current word.
 func (m *model) doDeleteChar() tea.Cmd {
-	if !m.gameOver && m.gridCol > 0 {
+	if !m.gameOver && !m.isRevealing() && m.gridCol > 0 {
 		m.gridCol--
 	}
 	return nil
@@ -260,9 +310,11 @@ func (m *model) doRestart() {
 	answer := m.dictionary.GetRandomCommonWord()
 	copy(m.answer[:], answer)
 
-	// Reset the grid.
+	// Reset the grid, and stop any reveal in progress.
 	m.gridCol = 0
 	m.gridRow = 0
+	m.revealCol = _numChars
+	m.revealID++
 
 	// Clear the key state.
 	for k := range m.keyStates {
@@ -321,8 +373,12 @@ func (m *model) viewGrid() string {
 	var rows [_numGuesses]string
 	for i := 0; i < _numGuesses; i++ {
 		if i < m.gridRow {
-			rows[i] = m.viewGridRowFilled(m.grid[i])
-		} else if i == m.gridRow && !m.gameOver {
+			revealed := _numChars
+			if i == m.gridRow-1 {
+				revealed = m.revealCol
+			}
+			rows[i] = m.viewGridRowFilled(m.grid[i], revealed)
+		} else if i == m.gridRow && !m.gameOver && !m.isRevealing() {
 			rows[i] = m.viewGridRowCurrent(m.grid[i], m.gridCol)
 		} else {
 			rows[i] = m.viewGridRowEmpty()
@@ -332,8 +388,8 @@ func (m *model) viewGrid() string {
 }
 
 // viewGridRowFilled renders a filled-in grid row. It chooses the appropriate
-// color for each key.
-func (m *model) viewGridRowFilled(word [_numChars]byte) string {
+// color for each of the first revealed keys; the rest are shown uncolored.
+func (m *model) viewGridRowFilled(word [_numChars]byte, revealed int) string {
 	var keyStates [_numChars]keyState
 	letters := m.answer
 
@@ -364,7 +420,11 @@ func (m *model) viewGridRowFilled(word [_numChars]byte) string {
 	// Render keys.
 	var keys [_numChars]string
 	for i := 0; i < _numChars; i++ {
-		keys[i] = m.viewKey(string(word[i]), keyStates[i].color())
+		color := _colorPrimary
+		if i < revealed {
+			color = keyStates[i].color()
+		}
+		keys[i] = m.viewKey(string(word[i]), color)
 	}
 	return lipgloss.JoinHorizontal(lipgloss.Bottom, keys[:]...)
 }
@@ -445,6 +505,11 @@ func (*model) viewKey(key string, color lipgloss.TerminalColor) string {
 
 // msgResetStatus is sent when the status line should be reset.
 type msgResetStatus struct{}
+
+// msgReveal is sent when the next letter of a guess should be revealed.
+type msgReveal struct {
+	id int
+}
 
 const (
 	_colorPrimary   = lipgloss.Color("#d7dadc")
