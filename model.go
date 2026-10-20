@@ -79,7 +79,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.resetStatus()
 
 		switch msg.Type {
-		case tea.KeyCtrlC:
+		case tea.KeyCtrlC, tea.KeyEsc:
 			return m, m.doExit()
 		case tea.KeyCtrlR:
 			m.doRestart()
@@ -481,7 +481,7 @@ func (s keyState) color() lipgloss.Color {
 }
 
 var _controls = fmt.Sprintf("%s %s %s %s %s",
-	lipgloss.NewStyle().Foreground(_colorPrimary).Render("ctrl+c"),
+	lipgloss.NewStyle().Foreground(_colorPrimary).Render("esc"),
 	lipgloss.NewStyle().Foreground(_colorSecondary).Render("quit"),
 	lipgloss.NewStyle().Foreground(_colorSeparator).Render("//"),
 	lipgloss.NewStyle().Foreground(_colorPrimary).Render("ctrl+r"),
