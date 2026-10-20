@@ -121,17 +121,25 @@ func (m *model) View() string {
 	grid := m.viewGrid()
 	keyboard := m.viewKeyboard()
 
-	// Drop the keyboard if it doesn't fit.
-	height := lipgloss.Height(status) + lipgloss.Height(grid) + lipgloss.Height(keyboard)
-	width := lipgloss.Width(keyboard)
-	if width < lipgloss.Width(status) || width < lipgloss.Width(grid) {
-		width = 0
-	}
-	if m.windowHeight < height || m.windowWidth < width {
-		keyboard = ""
-	}
+	// Show the keyboard and the controls if they fit. If both don't, the
+	// keyboard is kept over the controls, and the controls are shown if the
+	// keyboard doesn't fit either. A view taller than the window would have
+	// its status line cut off.
+	base := lipgloss.Height(status) + lipgloss.Height(grid)
+	keyboardHeight := lipgloss.Height(keyboard)
+	controlsHeight := lipgloss.Height(_controls)
+	keyboardFits := m.windowWidth >= lipgloss.Width(keyboard) || lipgloss.Width(keyboard) < max(lipgloss.Width(status), lipgloss.Width(grid))
 
-	game := lipgloss.JoinVertical(lipgloss.Center, status, grid, keyboard, _controls)
+	parts := []string{status, grid}
+	switch {
+	case keyboardFits && base+keyboardHeight+controlsHeight <= m.windowHeight:
+		parts = append(parts, keyboard, _controls)
+	case keyboardFits && base+keyboardHeight <= m.windowHeight:
+		parts = append(parts, keyboard)
+	case base+controlsHeight <= m.windowHeight:
+		parts = append(parts, _controls)
+	}
+	game := lipgloss.JoinVertical(lipgloss.Center, parts...)
 	return lipgloss.Place(m.windowWidth, m.windowHeight, lipgloss.Center, lipgloss.Center, game)
 }
 
