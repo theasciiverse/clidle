@@ -93,3 +93,9 @@ with status 0; layout at 100x31, 100x30, 80x24, 80x20, 60x19, 50x31 and
 guesses, saves in `%LOCALAPPDATA%\clidle`, Esc quits with status 0;
 Wine's console turns the box drawing into "?", so the look on real
 Windows is unchecked. macOS: not built here.
+
+## Ours
+
+- **How to play it, at the top of README.md.** A short note on installing and
+  starting it with av, or from a release archive; the original text follows
+  unchanged.

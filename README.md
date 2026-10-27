@@ -1,3 +1,16 @@
+> **Play it with Asciiverse.** With [av](https://asciiverse.sh), the Asciiverse
+> client:
+>
+> ```
+> av install clidle
+> av play clidle
+> ```
+>
+> Or download the archive for your system from this repository's Releases,
+> unpack it and run `./clidle` (`clidle.exe` on Windows).
+>
+> The original README follows.
+
 <div align="center">
 
 # clidle
